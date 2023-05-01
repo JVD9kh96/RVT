@@ -213,10 +213,9 @@ class ObjectLabelFactory(ObjectLabelBase):
             object_labels.scale_(scaling_multiplier=1 / self.downsample_factor)
         return object_labels
 
-
 class ObjectLabels(ObjectLabelBase):
     def __init__(self,
-                 object_labels: th.Tensor,
+                 object_labels: tf.Tensor,
                  input_size_hw: Tuple[int, int]):
         super().__init__(object_labels=object_labels, input_size_hw=input_size_hw)
 
@@ -230,31 +229,31 @@ class ObjectLabels(ObjectLabelBase):
         #  |             |    |       |
         #  |             |    |       |
         # (x0,y1)---(x1,y1)   p01---p11
-        p00 = th.stack((self.x, self.y), dim=1)
-        p10 = th.stack((self.x + self.w, self.y), dim=1)
-        p01 = th.stack((self.x, self.y + self.h), dim=1)
-        p11 = th.stack((self.x + self.w, self.y + self.h), dim=1)
+        p00 = tf.stack((self.x, self.y), axis=1)
+        p10 = tf.stack((self.x + self.w, self.y), axis=1)
+        p01 = tf.stack((self.x, self.y + self.h), axis=1)
+        p11 = tf.stack((self.x + self.w, self.y + self.h), axis=1)
         # points: 4 x N x 2
-        points = th.stack((p00, p10, p01, p11), dim=0)
+        points = tf.stack((p00, p10, p01, p11), axis=0)
 
         cx = self._input_size_hw[1] // 2
         cy = self._input_size_hw[0] // 2
-        center = th.tensor([cx, cy], device=self.device)
+        center = tf.constant([cx, cy], dtype=self.dtype, device=self.device)
 
         angle_rad = angle_deg / 180 * math.pi
         # counter-clockwise rotation
-        rot_matrix = th.tensor([[math.cos(angle_rad), math.sin(angle_rad)],
-                                [-math.sin(angle_rad), math.cos(angle_rad)]], device=self.device)
+        rot_matrix = tf.constant([[math.cos(angle_rad), math.sin(angle_rad)],
+                                [-math.sin(angle_rad), math.cos(angle_rad)]], dtype=self.dtype, device=self.device)
 
         points = points - center
-        points = th.einsum('ij,pnj->pni', rot_matrix, points)
+        points = tf.einsum('ij,pnj->pni', rot_matrix, points)
         points = points + center
 
         height, width = self.input_size_hw
-        x0 = th.clamp(th.min(points[..., 0], dim=0)[0], min=0, max=width - 1)
-        y0 = th.clamp(th.min(points[..., 1], dim=0)[0], min=0, max=height - 1)
-        x1 = th.clamp(th.max(points[..., 0], dim=0)[0], min=0, max=width - 1)
-        y1 = th.clamp(th.max(points[..., 1], dim=0)[0], min=0, max=height - 1)
+        x0 = tf.clip_by_value(tf.reduce_min(points[..., 0], axis=0), clip_value_min=0, clip_value_max=width - 1)
+        y0 = tf.clip_by_value(tf.reduce_min(points[..., 1], axis=0), clip_value_min=0, clip_value_max=height - 1)
+        x1 = tf.clip_by_value(tf.reduce_max(points[..., 0], axis=0), clip_value_min=0, clip_value_max=width - 1)
+        y1 = tf.clip_by_value(tf.reduce_max(points[..., 1], axis=0), clip_value_min=0, clip_value_max=height - 1)
 
         self.x = x0
         self.y = y0
@@ -263,10 +262,10 @@ class ObjectLabels(ObjectLabelBase):
 
         self.remove_flat_labels_()
 
-        assert th.all(self.x >= 0)
-        assert th.all(self.y >= 0)
-        assert th.all(self.x + self.w <= self.input_size_hw[1] - 1)
-        assert th.all(self.y + self.h <= self.input_size_hw[0] - 1)
+        assert tf.reduce_all(self.x >= 0)
+        assert tf.reduce_all(self.y >= 0)
+        assert tf.reduce_all(self.x + self.w <= self.input_size_hw[1] - 1)
+        assert tf.reduce_all(self.y + self.h <= self.input_size_hw[0] - 1)
 
     def zoom_in_and_rescale_(self, zoom_coordinates_x0y0: Tuple[int, int], zoom_in_factor: float):
         """
@@ -290,11 +289,11 @@ class ObjectLabels(ObjectLabelBase):
         z_y1 = min(z_y0 + zoom_window_h, h_orig - 1)
         assert z_y1 <= h_orig - 1, f'{z_y1=} is larger than {h_orig-1=}'
 
-        x0 = th.clamp(self.x, min=z_x0, max=z_x1 - 1)
-        y0 = th.clamp(self.y, min=z_y0, max=z_y1 - 1)
+        x0 = tf.clip_by_value(self.x, clip_value_min=z_x0, clip_value_max=z_x1 - 1)
+        y0 = tf.clip_by_value(self.y, clip_value_min=z_y0, clip_value_max=z_y1 - 1)
 
         x1 = th.clamp(self.x + self.w, min=z_x0, max=z_x1 - 1)
-        y1 = th.clamp(self.y + self.h, min=z_y0, max=z_y1 - 1)
+        y1 = tf.clip_by_value(self.y + self.h, clip_value_min=z_y0, clip_value_max=z_y1 - 1)
 
         self.x = x0 - z_x0
         self.y = y0 - z_y0
@@ -305,7 +304,7 @@ class ObjectLabels(ObjectLabelBase):
         self.remove_flat_labels_()
 
         self.scale_(scaling_multiplier=zoom_in_factor)
-
+    
     def zoom_out_and_rescale_(self, zoom_coordinates_x0y0: Tuple[int, int], zoom_out_factor: float):
         """
         1) Scales the input by a factor of 1/zoom_out_factor (i.e. reduces the canvas size)
@@ -339,8 +338,8 @@ class ObjectLabels(ObjectLabelBase):
         new_img_ht = scaling_multiplier * img_ht
         new_img_wd = scaling_multiplier * img_wd
         self.input_size_hw = (new_img_ht, new_img_wd)
-        x1 = th.clamp((self.x + self.w) * scaling_multiplier, max=new_img_wd - 1)
-        y1 = th.clamp((self.y + self.h) * scaling_multiplier, max=new_img_ht - 1)
+        x1 = tf.clip_by_value((self.x + self.w) * scaling_multiplier, clip_value_min=0., clip_value_max=new_img_wd - 1.)
+        y1 = tf.clip_by_value((self.y + self.h) * scaling_multiplier, clip_value_min=0., clip_value_max=new_img_ht - 1.)
         self.x = self.x * scaling_multiplier
         self.y = self.y * scaling_multiplier
 
@@ -348,30 +347,28 @@ class ObjectLabels(ObjectLabelBase):
         self.h = y1 - self.y
 
         self.remove_flat_labels_()
-
+        
     def flip_lr_(self) -> None:
         if len(self) == 0:
             return
         self.x = self.input_size_hw[1] - 1 - self.x - self.w
-
-    def get_labels_as_tensors(self, format_: str = 'yolox') -> th.Tensor:
+        
+    def get_labels_as_tensors(self, format_: str = 'yolox') -> tf.Tensor:
         self._assert_not_numpy()
 
         if format_ == 'yolox':
-            out = th.zeros((len(self), 5), dtype=th.float32, device=self.device)
+            with tf.device(self.device):
+                out = tf.zeros((len(self), 5), dtype=tf.float32, device=self.device)
             if len(self) == 0:
                 return out
-            out[:, 0] = self.class_id
-            out[:, 1] = self.x + 0.5 * self.w
-            out[:, 2] = self.y + 0.5 * self.h
-            out[:, 3] = self.w
-            out[:, 4] = self.h
+            with tf.device(self.device):
+                out = tf.concat((self.class_id, self.x + 0.5 * self.w, self.y + 0.5 * self.h, self.w, self.h), axis=-1)
             return out
         else:
             raise NotImplementedError
 
     @staticmethod
-    def get_labels_as_batched_tensor(obj_label_list: List[ObjectLabels], format_: str = 'yolox') -> th.Tensor:
+    def get_labels_as_batched_tensor(obj_label_list: List[ObjectLabels], format_: str = 'yolox') -> tf.Tensor:
         num_object_frames = len(obj_label_list)
         assert num_object_frames > 0
         max_num_labels_per_object_frame = max([len(x) for x in obj_label_list])
@@ -382,12 +379,13 @@ class ObjectLabels(ObjectLabelBase):
             for labels in obj_label_list:
                 obj_labels_tensor = labels.get_labels_as_tensors(format_=format_)
                 num_to_pad = max_num_labels_per_object_frame - len(labels)
-                padded_labels = pad(obj_labels_tensor, (0, 0, 0, num_to_pad), mode='constant', value=0)
+                padded_labels = tf.pad(obj_labels_tensor, (0, 0, 0, num_to_pad), mode='constant')
                 tensor_labels.append(padded_labels)
-            tensor_labels = th.stack(tensors=tensor_labels, dim=0)
+            tensor_labels = tf.stack(tensor_labels, axis=0)
             return tensor_labels
         else:
             raise NotImplementedError
+
 
 
 class SparselyBatchedObjectLabels:
