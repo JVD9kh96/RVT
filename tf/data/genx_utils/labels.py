@@ -14,6 +14,15 @@ from typing import List, Tuple, Union, Optional
 import tensorflow as tf
 from tensorflow.keras.layers import ZeroPadding2D
 
+def assign_value(tensor, value, axis=1):
+    value = tf.convert_to_tensor(tf.cast(value, tensor.dtype))
+    if tf.rank(value) == 0:
+        value = tf.fill(tf.shape(tensor)[0], value)
+    value = tf.reshape(value, (tf.shape(tensor)[0], ))
+    idx   = tf.constant([[x, axis] for x in range(tensor.shape[0])])
+    return tf.tensor_scatter_nd_update(tensor, idx, value)
+    
+
 class ObjectLabelBase:
     _str2idx = {
         't': 0,
@@ -108,7 +117,7 @@ class ObjectLabelBase:
 
     @x.setter
     def x(self, value: Union[tf.Tensor, np.ndarray]):
-        self.object_labels[:, self._str2idx['x']].assign(value)
+        self.object_labels = assign_value(self.object_labels, value, axis=self._str2idx['x'])
 
     @property
     def y(self):
@@ -116,7 +125,7 @@ class ObjectLabelBase:
 
     @y.setter
     def y(self, value: Union[tf.Tensor, np.ndarray]):
-        self.object_labels[:, self._str2idx['y']].assign(value)
+        self.object_labels = assign_value(self.object_labels, value, axis=self._str2idx['y'])
 
     @property
     def w(self):
@@ -124,7 +133,7 @@ class ObjectLabelBase:
 
     @w.setter
     def w(self, value: Union[tf.Tensor, np.ndarray]):
-        self.object_labels[:, self._str2idx['w']].assign(value)
+        self.object_labels = assign_value(self.object_labels, value, axis=self._str2idx['w'])
 
     @property
     def h(self):
@@ -132,7 +141,7 @@ class ObjectLabelBase:
 
     @h.setter
     def h(self, value: Union[tf.Tensor, np.ndarray]):
-        self.object_labels[:, self._str2idx['h']].assign(value)
+        self.object_labels = assign_value(self.object_labels, value, axis=self._str2idx['h'])
 
     @property
     def class_id(self):
