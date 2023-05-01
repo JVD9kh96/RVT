@@ -3,8 +3,7 @@ from typing import Any, List, Optional
 
 import h5py
 import numpy as np
-import torch
-from torchdata.datapipes.map import MapDataPipe
+import tensorflow as tf
 
 from data.genx_utils.labels import ObjectLabelFactory, ObjectLabels
 from data.utils.spatial import get_original_hw
@@ -23,8 +22,7 @@ def get_objframe_idx_2_repr_idx(path: Path, ev_representation_name: str) -> np.n
     objframe_idx_2_repr_idx = np.load(str(ev_repr_dir / 'objframe_idx_2_repr_idx.npy'))
     return objframe_idx_2_repr_idx
 
-
-class SequenceBase(MapDataPipe):
+class SequenceBase(tf.keras.utils.Sequence):
     """
     Structure example of a sequence:
     .
@@ -42,12 +40,12 @@ class SequenceBase(MapDataPipe):
                  path: Path,
                  ev_representation_name: str,
                  sequence_length: int,
-                 dataset_type: DatasetType,
+                 dataset_type: str,
                  downsample_by_factor_2: bool,
                  only_load_end_labels: bool):
         assert sequence_length >= 1
         assert path.is_dir()
-        assert dataset_type in {DatasetType.GEN1, DatasetType.GEN4}, f'{dataset_type} not implemented'
+        assert dataset_type in {"GEN1", "GEN4"}, f'{dataset_type} not implemented'
 
         self.only_load_end_labels = only_load_end_labels
 
@@ -81,24 +79,24 @@ class SequenceBase(MapDataPipe):
             self.repr_idx_2_objframe_idx = dict(zip(self.objframe_idx_2_repr_idx,
                                                     range(len(self.objframe_idx_2_repr_idx))))
 
-    def _get_labels_from_repr_idx(self, repr_idx: int) -> Optional[ObjectLabels]:
+    def _get_labels_from_repr_idx(self, repr_idx: int):
         objframe_idx = self.repr_idx_2_objframe_idx.get(repr_idx, None)
         return None if objframe_idx is None else self.label_factory[objframe_idx]
 
-    def _get_event_repr_torch(self, start_idx: int, end_idx: int) -> List[torch.Tensor]:
+    def _get_event_repr_tf(self, start_idx: int, end_idx: int):
         assert end_idx > start_idx
         with h5py.File(str(self.ev_repr_file), 'r') as h5f:
             ev_repr = h5f['data'][start_idx:end_idx]
-        ev_repr = torch.from_numpy(ev_repr)
-        if ev_repr.dtype != torch.uint8:
-            ev_repr = torch.asarray(ev_repr, dtype=torch.float32)
-        ev_repr = torch.split(ev_repr, 1, dim=0)
-        # remove first dim that is always 1 due to how torch.split works
+        ev_repr = tf.constant(ev_repr, dtype=tf.float32)
+        ev_repr = tf.split(ev_repr, ev_repr.shape[0], axis=0)
+        # remove first dim that is always 1 due to how tf.split works
         ev_repr = [x[0] for x in ev_repr]
         return ev_repr
 
-    def __len__(self) -> int:
+    def __len__(self):
         raise NotImplementedError
 
-    def __getitem__(self, index: int) -> Any:
+    def __getitem__(self, index):
         raise NotImplementedError
+
+
