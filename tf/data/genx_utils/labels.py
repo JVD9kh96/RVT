@@ -4,15 +4,9 @@ from typing import List, Tuple, Union, Optional
 
 import math
 import numpy as np
-import torch as th
-from einops import rearrange
-from torch.nn.functional import pad
 import tensorflow as tf
-
 from typing import List, Tuple, Union, Optional
 
-import tensorflow as tf
-from tensorflow.keras.layers import ZeroPadding2D
 
 def assign_value(tensor, value, axis=1):
     value = tf.convert_to_tensor(tf.cast(value, tensor.dtype))
