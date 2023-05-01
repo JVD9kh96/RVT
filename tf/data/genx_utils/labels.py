@@ -7,7 +7,7 @@ import numpy as np
 import torch as th
 from einops import rearrange
 from torch.nn.functional import pad
-
+import tensorflow as tf
 
 class ObjectLabelBase:
     _str2idx = {
@@ -21,10 +21,8 @@ class ObjectLabelBase:
     }
 
     def __init__(self,
-                 object_labels: th.Tensor,
+                 object_labels,
                  input_size_hw: Tuple[int, int]):
-        assert isinstance(object_labels, th.Tensor)
-        assert object_labels.dtype in {th.float32, th.float64}
         assert object_labels.ndim == 2
         assert object_labels.shape[-1] == len(self._str2idx)
         assert isinstance(input_size_hw, tuple)
@@ -35,11 +33,11 @@ class ObjectLabelBase:
         self._is_numpy = False
 
     def clamp_to_frame_(self):
-        ht, wd = self.input_size_hw
-        x0 = th.clamp(self.x, min=0, max=wd - 1)
-        y0 = th.clamp(self.y, min=0, max=ht - 1)
-        x1 = th.clamp(self.x + self.w, min=0, max=wd - 1)
-        y1 = th.clamp(self.y + self.h, min=0, max=ht - 1)
+        ht, wd = self.input_size_hw[0], self.input_size_hw[1]
+        x0 = tf.clip_by_value(self.x, clip_value_min=0, clip_value_max=wd - 1)
+        y0 = tf.clip_by_value(self.y, clip_value_min=0, clip_value_max=ht - 1)
+        x1 = tf.clip_by_value(self.x + self.w, clip_value_min=0, clip_value_max=wd - 1)
+        y1 = tf.clip_by_value((self.y + self.h, clip_value_min=0, clip_value_max=ht - 1)
         w = x1 - x0
         h = y1 - y0
         assert th.all(w > 0)
@@ -50,32 +48,34 @@ class ObjectLabelBase:
         self.h = h
 
     def remove_flat_labels_(self):
-        keep = (self.w > 0) & (self.h > 0)
-        self.object_labels = self.object_labels[keep]
+        keep = tf.math.logical_and(self.w > tf.cast(0.0, self.w.dtype), self.h > tf.cast(0.0, self.h.dtype))
+        self.object_labels = tf.boolean_mask(self.object_labels, keep, axis=0)
 
     @classmethod
     def create_empty(cls):
         # This is useful to represent cases where no labels are available.
-        return ObjectLabelBase(object_labels=th.empty((0, len(cls._str2idx))), input_size_hw=(0, 0))
+        return ObjectLabelBase(object_labels=tf.zeros((0, len(cls._str2idx))), input_size_hw=(0, 0))
+
 
     def _assert_not_numpy(self):
         assert not self._is_numpy, "Labels have been converted numpy. \
         Numpy is not supported for the intended operations."
 
     def to(self, *args, **kwargs):
-        # This function executes torch.to on self tensors and returns self.
+        # This function executes tf.cast and tf.device on self tensors and returns self.
         self._assert_not_numpy()
-        # This will be used by Pytorch Lightning to transfer to the relevant device
-        self.object_labels = self.object_labels.to(*args, **kwargs)
-        return self
+        # This will be used by TensorFlow to transfer to the relevant device
+        with tf.device(*args, **kwargs):
+            self.object_labels = tf.cast(self.object_labels, dtype=tf.float32)
+    return self
 
     def numpy_(self) -> None:
         """
-        In place conversion to numpy (detach + to cpu + to numpy).
+        In place conversion to numpy (numpy).
         Cannot be undone.
         """
         self._is_numpy = True
-        self.object_labels = self.object_labels.detach().cpu().numpy()
+        self.object_labels = self.object_labels.numpy()
 
     @property
     def input_size_hw(self) -> Tuple[int, int]:
@@ -102,7 +102,7 @@ class ObjectLabelBase:
         return self.object_labels[:, self._str2idx['x']]
 
     @x.setter
-    def x(self, value: Union[th.Tensor, np.ndarray]):
+    def x(self, value):
         self.object_labels[:, self._str2idx['x']] = value
 
     @property
@@ -110,7 +110,7 @@ class ObjectLabelBase:
         return self.object_labels[:, self._str2idx['y']]
 
     @y.setter
-    def y(self, value: Union[th.Tensor, np.ndarray]):
+    def y(self, value):
         self.object_labels[:, self._str2idx['y']] = value
 
     @property
@@ -118,7 +118,7 @@ class ObjectLabelBase:
         return self.object_labels[:, self._str2idx['w']]
 
     @w.setter
-    def w(self, value: Union[th.Tensor, np.ndarray]):
+    def w(self, value):
         self.object_labels[:, self._str2idx['w']] = value
 
     @property
@@ -126,7 +126,7 @@ class ObjectLabelBase:
         return self.object_labels[:, self._str2idx['h']]
 
     @h.setter
-    def h(self, value: Union[th.Tensor, np.ndarray]):
+    def h(self, value):
         self.object_labels[:, self._str2idx['h']] = value
 
     @property
