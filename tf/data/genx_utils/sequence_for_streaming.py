@@ -3,9 +3,8 @@ from typing import List, Optional, Union, Tuple
 
 import h5py
 import numpy as np
-import torch
 from omegaconf import DictConfig
-from torchdata.datapipes.iter import IterDataPipe
+import tensorflow as tf 
 
 from data.genx_utils.labels import SparselyBatchedObjectLabels
 from data.genx_utils.sequence_base import SequenceBase, get_objframe_idx_2_repr_idx
@@ -111,10 +110,10 @@ class SequenceForIter(SequenceBase):
         return sequence_list
 
     @property
-    def padding_representation(self) -> torch.Tensor:
+    def padding_representation(self) -> tf.Tensor:
         if self._padding_representation is None:
-            ev_repr = self._get_event_repr_torch(start_idx=0, end_idx=1)[0]
-            self._padding_representation = torch.zeros_like(ev_repr)
+            ev_repr = self._get_event_repr_tf(start_idx=0, end_idx=1)[0]
+            self._padding_representation = tf.zeros_like(ev_repr)
         return self._padding_representation
 
     def get_fully_padded_sample(self) -> LoaderDataDictGenX:
@@ -149,7 +148,7 @@ class SequenceForIter(SequenceBase):
 
         # event representations ###
         with Timer(timer_name='read ev reprs'):
-            ev_repr = self._get_event_repr_torch(start_idx=start_idx, end_idx=end_idx)
+            ev_repr = self._get_event_repr_tf(start_idx=start_idx, end_idx=end_idx)
         assert len(ev_repr) == sample_len
         ###########################
 
@@ -181,24 +180,29 @@ class SequenceForIter(SequenceBase):
         return out
 
 
-class RandAugmentIterDataPipe(IterDataPipe):
-    def __init__(self, source_dp: IterDataPipe, dataset_config: DictConfig):
-        super().__init__()
-        self.source_dp = source_dp
 
-        resolution_hw = tuple(dataset_config.resolution_hw)
-        assert len(resolution_hw) == 2
-        ds_by_factor_2 = dataset_config.downsample_by_factor_2
-        if ds_by_factor_2:
-            resolution_hw = tuple(x // 2 for x in resolution_hw)
+
+class RandAugmentSequence(tf.keras.utils.Sequence):
+    def __init__(self, source_sequence, dataset_config):
+        self.source_sequence = source_sequence
+        self.resolution_hw = tuple(dataset_config.resolution_hw)
+        self.ds_by_factor_2 = dataset_config.downsample_by_factor_2
+        if self.ds_by_factor_2:
+            self.resolution_hw = tuple(x // 2 for x in self.resolution_hw)
 
         augm_config = dataset_config.data_augmentation
         self.spatial_augmentor = RandomSpatialAugmentorGenX(
-            dataset_hw=resolution_hw,
+            dataset_hw=self.resolution_hw,
             automatic_randomization=False,
             augm_config=augm_config.stream)
 
-    def __iter__(self):
+    def __len__(self):
+        return len(self.source_sequence)
+
+    def __getitem__(self, index):
+        x, y = self.source_sequence[index]
+
         self.spatial_augmentor.randomize_augmentation()
-        for x in self.source_dp:
-            yield self.spatial_augmentor(x)
+        x = self.spatial_augmentor(x)
+
+        return x, y
