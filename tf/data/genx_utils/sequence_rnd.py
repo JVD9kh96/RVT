@@ -60,7 +60,7 @@ class SequenceForRandomAccess(SequenceBase):
             return {DataType.OBJLABELS_SEQ: sparse_labels}
 
         with Timer(timer_name='read ev reprs'):
-            ev_repr = self._get_event_repr_torch(start_idx=start_idx, end_idx=end_idx)
+            ev_repr = self._get_event_repr_tf(start_idx=start_idx, end_idx=end_idx)
         assert len(sparse_labels) == len(ev_repr)
 
         is_first_sample = True  # Due to random loading
